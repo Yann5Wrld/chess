@@ -1,0 +1,71 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Intégrer Stockfish et chess.js dans l'appli (fonctionne hors ligne)
+        run: |
+          cd app/src/main/assets
+          curl -fsSL -o chess.min.js https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js || echo "chess.js non intégré, il sera chargé depuis internet"
+          for u in \
+            https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js \
+            https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js \
+            https://unpkg.com/stockfish.js@10.0.2/stockfish.js; do
+            if curl -fsSL -o stockfish.js "$u"; then echo "Stockfish intégré depuis $u"; break; fi
+          done
+          ls -la
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Intégrer le répertoire complet des ouvertures (lichess)
+        run: |
+          pip install chess
+          mkdir -p /tmp/op
+          ok=1
+          for x in a b c d e; do
+            curl -fsSL -o /tmp/op/$x.tsv https://raw.githubusercontent.com/lichess-org/chess-openings/master/$x.tsv || ok=0
+          done
+          if [ "$ok" = 1 ]; then
+            python tools/build_openings.py /tmp/op/a.tsv /tmp/op/b.tsv /tmp/op/c.tsv /tmp/op/d.tsv /tmp/op/e.tsv app/src/main/assets/openings.json
+          else
+            echo "Répertoire lichess non téléchargé : seules les ouvertures intégrées seront reconnues"
+          fi
+
+      - name: Compiler l'APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Renommer l'APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk ExplorateurStockfish.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ExplorateurStockfish-apk
+          path: ExplorateurStockfish.apk
+
+      - name: Publier dans Releases (téléchargeable depuis le téléphone)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.${{ github.run_number }}
+          name: Explorateur Stockfish v1.${{ github.run_number }}
+          files: ExplorateurStockfish.apk

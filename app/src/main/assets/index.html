@@ -1,0 +1,1019 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1C231F">
+<title>Explorateur Stockfish</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+Symbols+2&display=swap">
+<style>
+/* Layout: app d'analyse — éval + échiquier à gauche, ouverture / coups / variantes à droite ; une colonne sur téléphone */
+:root{
+  --bg:#EDF0EA; --surface:#FBFCF9; --fg:#1C231F; --muted:#5B685F; --line:#D2D9D0;
+  --sq-light:#DAE2D3; --sq-dark:#6E8B74;
+  --accent:#DB8F22; --accent-ink:#241603; --accent-soft:rgba(219,143,34,.16);
+  --sel:rgba(232,160,46,.62); --last:rgba(232,170,60,.34); --check:rgba(205,62,56,.85);
+  --dot:rgba(24,32,27,.30); --danger:#B23A31;
+  --side-white:#F7F7F2; --side-black:#1A1E1B;
+  --font-display:"Bricolage Grotesque","Avenir Next","Segoe UI",sans-serif;
+  --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  --font-piece:"Noto Sans Symbols 2","Segoe UI Symbol","DejaVu Sans","Arial Unicode MS",serif;
+  --radius:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121714; --surface:#1A211D; --fg:#E5EBE4; --muted:#93A098; --line:#2B352F;
+    --sq-light:#B7C3B0; --sq-dark:#55715C;
+    --accent:#F0AA45; --accent-ink:#1E1203; --accent-soft:rgba(240,170,69,.16);
+    --dot:rgba(8,12,10,.38); --danger:#E0665C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121714; --surface:#1A211D; --fg:#E5EBE4; --muted:#93A098; --line:#2B352F;
+  --sq-light:#B7C3B0; --sq-dark:#55715C;
+  --accent:#F0AA45; --accent-ink:#1E1203; --accent-soft:rgba(240,170,69,.16);
+  --dot:rgba(8,12,10,.38); --danger:#E0665C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg); font-family:var(--font-body); font-size:15px; line-height:1.45;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-top:max(14px, env(safe-area-inset-top, 0px)); padding-bottom:max(28px, env(safe-area-inset-bottom, 0px));
+}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+.app{max-width:1080px; margin:0 auto; display:grid; gap:16px}
+@media (min-width:880px){
+  .app{grid-template-columns:minmax(0, min(580px, 76vh)) minmax(300px,1fr); align-items:start; gap:28px}
+}
+header.top{display:flex; align-items:center; justify-content:space-between; gap:12px; grid-column:1/-1}
+.brand{font-family:var(--font-display); font-weight:800; font-size:1.35rem; letter-spacing:-.01em; margin:0}
+.brand span{color:var(--accent)}
+.chip{display:inline-flex; align-items:center; gap:7px; font-size:.78rem; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:4px 10px; background:var(--surface); white-space:nowrap}
+.chip i{width:7px; height:7px; border-radius:50%; background:var(--muted); display:block}
+.chip.ok i{background:#4FA36A}
+.chip.warn i{background:var(--accent)}
+.chip.err i{background:var(--danger)}
+
+/* ----- échiquier ----- */
+.board-col{display:grid; gap:10px; min-width:0}
+.opening-bar{display:flex; align-items:baseline; gap:8px; min-height:1.6em; min-width:0}
+.eco{font-family:var(--font-mono); font-size:.74rem; font-weight:600; padding:2px 6px; border-radius:6px; background:var(--accent-soft); color:var(--fg); flex:none}
+.op-name{font-family:var(--font-display); font-weight:600; font-size:1.02rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+.op-name.none{color:var(--muted); font-family:var(--font-body); font-weight:400; font-size:.9rem}
+.evalrow{display:flex; align-items:center; gap:12px}
+.evalnum{font-family:var(--font-mono); font-weight:600; font-size:1.5rem; min-width:5.2ch; font-variant-numeric:tabular-nums}
+.evalbar{flex:1; height:12px; border-radius:99px; overflow:hidden; display:flex; border:1px solid var(--line); background:var(--side-black)}
+.evalbar.flip{flex-direction:row-reverse}
+.evalbar .w{background:var(--side-white); width:50%; transition:width .45s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion: reduce){ .evalbar .w{transition:none} }
+
+.board-wrap{position:relative; width:100%; aspect-ratio:1; max-width:100%; container-type:inline-size; border-radius:6px; overflow:hidden; box-shadow:0 1px 0 var(--line), 0 10px 30px -18px rgba(0,0,0,.45)}
+.board{display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr); width:100%; height:100%; touch-action:manipulation; user-select:none; -webkit-user-select:none}
+.sq{position:relative; border:0; padding:0; margin:0; display:grid; place-items:center; background:var(--sq-light); -webkit-tap-highlight-color:transparent}
+.sq.d{background:var(--sq-dark)}
+.sq::before{content:""; position:absolute; inset:0; pointer-events:none}
+.sq.last::before{background:var(--last)}
+.sq.sel::before{background:var(--sel)}
+.sq.chk::before{background:radial-gradient(circle, var(--check) 0%, transparent 72%)}
+.sq.tgt::after{content:""; position:absolute; width:30%; height:30%; border-radius:50%; background:var(--dot); pointer-events:none; z-index:2}
+.sq.tgt.cap::after{width:auto; height:auto; inset:5%; background:none; border:calc(100cqw/8*0.08) solid var(--dot)}
+.pc{position:relative; z-index:1; font-family:var(--font-piece); line-height:1; font-size:9vw; font-size:calc(100cqw/8*0.80); pointer-events:none; transform:translateY(2%)}
+.pc.w{color:var(--side-white); -webkit-text-stroke:calc(100cqw/8*0.028) var(--side-black); text-shadow:0 1px 2px rgba(0,0,0,.25)}
+.pc.b{color:var(--side-black); text-shadow:0 1px 1px rgba(255,255,255,.18)}
+.co{position:absolute; font-family:var(--font-body); font-weight:600; font-size:calc(100cqw/8*0.17); line-height:1; pointer-events:none; z-index:1}
+.co.f{right:5%; bottom:5%}
+.co.r{left:5%; top:5%}
+.sq .co{color:var(--sq-dark)}
+.sq.d .co{color:var(--sq-light)}
+svg.arrows{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:3}
+svg.arrows polygon{fill:var(--accent); opacity:.88}
+.mbadge{position:absolute; width:12.5%; height:12.5%; pointer-events:none; z-index:4}
+.mbadge span{position:absolute; top:3%; right:3%; width:44%; height:44%; border-radius:50%; display:grid; place-items:center; font-family:var(--font-body); font-weight:700; font-size:calc(100cqw/8*0.21); line-height:1; box-shadow:0 1px 4px rgba(0,0,0,.4); border:2px solid rgba(255,255,255,.85); animation:pop .25s ease-out}
+@keyframes pop{from{transform:scale(.4); opacity:0}to{transform:scale(1); opacity:1}}
+@media (prefers-reduced-motion: reduce){ .mbadge span{animation:none} }
+
+.promo{position:absolute; inset:0; z-index:5; display:grid; place-items:center; background:rgba(10,14,12,.45)}
+.promo-box{display:flex; gap:6px; background:var(--surface); padding:8px; border-radius:var(--radius); box-shadow:0 12px 30px rgba(0,0,0,.35)}
+.promo-box button{width:calc(100cqw/8*1.05); height:calc(100cqw/8*1.05); border:1px solid var(--line); border-radius:10px; background:var(--sq-light); display:grid; place-items:center}
+
+.verdict{display:flex; align-items:center; gap:10px; min-height:44px; padding:8px 12px; border-radius:var(--radius); background:var(--surface); border:1px solid var(--line); font-size:.92rem}
+.verdict .txt{min-width:0}
+.verdict .txt b{font-weight:600}
+.verdict .sub{color:var(--muted); font-size:.82rem}
+
+.controls{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.btn{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:56px; padding:8px 4px; border-radius:var(--radius); border:1px solid var(--line); background:var(--surface); font-size:.78rem; font-weight:500; color:var(--fg)}
+.btn svg{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600}
+.btn:disabled{opacity:.45; cursor:default}
+
+/* ----- badges de classification ----- */
+.cls{display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; font-size:.66rem; font-weight:700; line-height:1; flex:none; color:#fff}
+.cls.pending{background:var(--line); color:var(--muted)}
+
+/* ----- panneau ----- */
+.panel{display:grid; gap:14px; min-width:0}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px; display:grid; gap:10px; min-width:0}
+.card h2{margin:0; font-family:var(--font-display); font-weight:600; font-size:.82rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); display:flex; justify-content:space-between; align-items:baseline; gap:8px}
+.card h2 small{font-family:var(--font-mono); letter-spacing:0; text-transform:none; font-weight:400; font-variant-numeric:tabular-nums}
+.op-detail{margin:0; font-size:.84rem; color:var(--muted)}
+.acc{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.acc div{border:1px solid var(--line); border-radius:10px; padding:8px 10px; display:flex; justify-content:space-between; align-items:baseline; font-size:.82rem; color:var(--muted)}
+.acc b{font-family:var(--font-mono); font-size:1.05rem; color:var(--fg); font-variant-numeric:tabular-nums}
+.moves{display:grid; grid-template-columns:2.4em 1fr 1fr; gap:2px 6px; max-height:230px; overflow-y:auto; font-family:var(--font-mono); font-size:.86rem; align-content:start}
+.moves .n{color:var(--muted); padding:4px 0}
+.moves .m{display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:6px; min-width:0}
+.moves .m.cur{background:var(--accent-soft)}
+.moves .empty{grid-column:1/-1; color:var(--muted); font-family:var(--font-body); font-size:.85rem}
+.status{margin:0; font-size:.92rem}
+.lines{list-style:none; margin:0; padding:0; display:grid; gap:6px}
+.line{display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; width:100%; text-align:left; border:1px solid transparent; background:transparent; border-radius:10px; padding:8px}
+.line:hover{background:var(--accent-soft); border-color:var(--line)}
+.line .sc{font-family:var(--font-mono); font-weight:600; font-size:.86rem; padding:3px 7px; border-radius:6px; min-width:6.2ch; text-align:center; font-variant-numeric:tabular-nums; border:1px solid var(--line)}
+.line .sc.pw{background:var(--side-white); color:var(--side-black)}
+.line .sc.pb{background:var(--side-black); color:var(--side-white)}
+.line .mv{font-family:var(--font-mono); font-size:.86rem; line-height:1.6; overflow-wrap:anywhere}
+.line .mv b{font-weight:600; color:var(--accent)}
+.line .mv .n{color:var(--muted)}
+.skel{height:34px; border-radius:10px; background:linear-gradient(90deg, var(--line) 0%, var(--bg) 50%, var(--line) 100%); background-size:200% 100%; animation:sh 1.4s infinite linear; opacity:.6}
+@keyframes sh{to{background-position:-200% 0}}
+@media (prefers-reduced-motion: reduce){ .skel{animation:none} }
+.hint{margin:0; font-size:.8rem; color:var(--muted)}
+.legend{display:flex; flex-wrap:wrap; gap:6px 12px; font-size:.78rem; color:var(--muted)}
+.legend span{display:inline-flex; align-items:center; gap:5px}
+.legend .cls{width:17px; height:17px; font-size:.58rem}
+.seg{display:grid; grid-template-columns:repeat(3,1fr); background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:3px; gap:3px}
+.seg button{border:0; background:transparent; border-radius:8px; padding:8px 4px; font-size:.84rem; color:var(--muted)}
+.seg button small{display:block; font-family:var(--font-mono); font-size:.7rem}
+.seg button[aria-pressed="true"]{background:var(--surface); color:var(--fg); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.fenrow{display:flex; gap:8px}
+.fenrow input{flex:1; min-width:0; font-family:var(--font-mono); font-size:.78rem; padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--bg)}
+.small-btn{border:1px solid var(--line); background:var(--bg); border-radius:10px; padding:8px 12px; font-size:.82rem; font-weight:500; white-space:nowrap}
+.msg{margin:0; font-size:.8rem; min-height:1.1em; color:var(--muted)}
+.msg.err{color:var(--danger)}
+.foot{font-size:.76rem; color:var(--muted); margin:0}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1 class="brand">Explorateur <span>Stockfish</span></h1>
+    <span class="chip" id="engineChip"><i></i><span id="engineName">Chargement du moteur…</span></span>
+  </header>
+
+  <section class="board-col" aria-label="Échiquier">
+    <div class="opening-bar" id="openingBar"><span class="op-name none">Position de départ</span></div>
+    <div class="evalrow">
+      <div class="evalnum" id="evalNum">0.00</div>
+      <div class="evalbar" id="evalBar" aria-hidden="true"><div class="w" id="evalW"></div></div>
+    </div>
+    <div class="board-wrap" id="boardWrap">
+      <div class="board" id="board" role="grid" aria-label="Échiquier, touche une pièce puis sa case d'arrivée"></div>
+      <svg class="arrows" id="arrows" viewBox="0 0 800 800" aria-hidden="true"></svg>
+      <div class="mbadge" id="mbadge" hidden></div>
+      <div class="promo" id="promo" hidden><div class="promo-box" id="promoBox"></div></div>
+    </div>
+    <div class="verdict" id="verdict" aria-live="polite"><span class="txt">Joue un coup pour voir sa note.</span></div>
+    <div class="controls">
+      <button class="btn" id="bUndo" type="button"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Annuler</button>
+      <button class="btn primary" id="bBest" type="button"><svg viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m13 6 6 6-6 6"/></svg>Meilleur coup</button>
+      <button class="btn" id="bFlip" type="button"><svg viewBox="0 0 24 24"><path d="M7 4v16"/><path d="m3 8 4-4 4 4"/><path d="M17 20V4"/><path d="m21 16-4 4-4-4"/></svg>Retourner</button>
+      <button class="btn" id="bNew" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Nouvelle</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Analyse">
+    <div class="card">
+      <h2>Ouverture <small id="ecoNow"></small></h2>
+      <p class="op-detail" id="opDetail">Joue les premiers coups pour reconnaître l'ouverture.</p>
+    </div>
+
+    <div class="card">
+      <h2>Coups joués</h2>
+      <div class="acc" id="acc"><div>Précision Blancs <b id="accW">–</b></div><div>Précision Noirs <b id="accB">–</b></div></div>
+      <div class="moves" id="moves"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="card">
+      <h2>Meilleurs coups <small id="depthNow"></small></h2>
+      <p class="status" id="status">Trait aux Blancs</p>
+      <ul class="lines" id="lines"></ul>
+      <p class="hint">Touche une variante pour jouer son premier coup.</p>
+    </div>
+
+    <div class="card">
+      <h2>Profondeur d'analyse</h2>
+      <div class="seg" id="depthSeg" role="group" aria-label="Profondeur">
+        <button type="button" data-d="12" aria-pressed="false">Rapide<small>prof. 12</small></button>
+        <button type="button" data-d="16" aria-pressed="true">Normale<small>prof. 16</small></button>
+        <button type="button" data-d="20" aria-pressed="false">Profonde<small>prof. 20</small></button>
+      </div>
+      <p class="hint">La note d'un coup s'affiche dès que le moteur a analysé la position avant et après ce coup.</p>
+    </div>
+
+    <div class="card">
+      <h2>Position (FEN)</h2>
+      <form class="fenrow" id="fenForm">
+        <input id="fenInput" type="text" spellcheck="false" autocomplete="off" aria-label="FEN de la position">
+        <button class="small-btn" type="submit">Charger</button>
+        <button class="small-btn" type="button" id="bCopy">Copier</button>
+      </form>
+      <p class="msg" id="fenMsg"></p>
+    </div>
+
+    <p class="foot">Pour étudier tes parties et les ouvertures. Ne l'utilise pas pendant une partie en ligne en cours.</p>
+  </section>
+</div>
+
+<script src="chess.min.js"></script>
+<script>window.Chess||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"><\/script>')</script>
+<script>
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const GLYPH = {k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"};
+const VS = "︎";
+const FILES = "abcdefgh";
+const MULTIPV = 3;
+const VAL = {p:1,n:3,b:3,r:5,q:9,k:0};
+
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("sfx:"+k); return v === null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("sfx:"+k, JSON.stringify(v)); }catch(e){} }
+};
+if (typeof Chess === "undefined"){
+  $("status").textContent = "Impossible de charger la logique d'échecs. Vérifie ta connexion puis relance.";
+  return;
+}
+
+/* ---------- classification ---------- */
+const CLS = {
+  brilliant:  {fr:"Brillant",    g:"!!", c:"#1BAD9E"},
+  great:      {fr:"Super coup",  g:"!",  c:"#5B8BB6"},
+  best:       {fr:"Meilleur",    g:"★", c:"#6F9E3F"},
+  excellent:  {fr:"Excellent",   g:"✓", c:"#8DB25A"},
+  good:       {fr:"Bon",         g:"✓", c:"#7E9A80"},
+  book:       {fr:"Théorie",     g:"≡", c:"#A3825F"},
+  forced:     {fr:"Forcé",       g:"→", c:"#7E9A80"},
+  inaccuracy: {fr:"Imprécision", g:"?!", c:"#E2B33C", ink:"#2A2104"},
+  mistake:    {fr:"Erreur",      g:"?",  c:"#E07F2C"},
+  blunder:    {fr:"Gaffe",       g:"??", c:"#CC3B33"}
+};
+const ARTICLE = {brilliant:"un coup brillant", great:"un super coup", best:"le meilleur coup", excellent:"un excellent coup", good:"un bon coup", book:"un coup de théorie", forced:"forcé", inaccuracy:"une imprécision", mistake:"une erreur", blunder:"une gaffe"};
+function badge(k){
+  if (!k) return '<span class="cls pending" title="Analyse en cours">…</span>';
+  const c = CLS[k];
+  return '<span class="cls" style="background:'+c.c+';color:'+(c.ink||"#fff")+'" title="'+c.fr+'">'+c.g+'</span>';
+}
+$("legend").innerHTML = ["brilliant","great","best","excellent","good","book","inaccuracy","mistake","blunder"]
+  .map(k => '<span>'+badge(k)+CLS[k].fr+'</span>').join("");
+
+/* ---------- ouvertures ---------- */
+// [ECO, nom français, coups]
+const FR_OPENINGS = [
+["B20","Défense sicilienne","e4 c5"],
+["B27","Défense sicilienne","e4 c5 Nf3"],
+["B50","Sicilienne","e4 c5 Nf3 d6"],
+["B54","Sicilienne ouverte","e4 c5 Nf3 d6 d4 cxd4 Nxd4"],
+["B90","Sicilienne Najdorf","e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6"],
+["B70","Sicilienne Dragon","e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 g6"],
+["B80","Sicilienne Scheveningue","e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 e6"],
+["B56","Sicilienne classique","e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 Nc6"],
+["B51","Sicilienne, attaque Moscou","e4 c5 Nf3 d6 Bb5+"],
+["B30","Sicilienne","e4 c5 Nf3 Nc6"],
+["B31","Sicilienne Rossolimo","e4 c5 Nf3 Nc6 Bb5"],
+["B32","Sicilienne ouverte","e4 c5 Nf3 Nc6 d4 cxd4 Nxd4"],
+["B33","Sicilienne Sveshnikov","e4 c5 Nf3 Nc6 d4 cxd4 Nxd4 Nf6 Nc3 e5"],
+["B35","Sicilienne Dragon accéléré","e4 c5 Nf3 Nc6 d4 cxd4 Nxd4 g6"],
+["B40","Sicilienne, variante française","e4 c5 Nf3 e6"],
+["B44","Sicilienne Taimanov","e4 c5 Nf3 e6 d4 cxd4 Nxd4 Nc6"],
+["B42","Sicilienne Kan","e4 c5 Nf3 e6 d4 cxd4 Nxd4 a6"],
+["B23","Sicilienne fermée","e4 c5 Nc3"],
+["B23","Sicilienne, attaque Grand Prix","e4 c5 Nc3 Nc6 f4"],
+["B22","Sicilienne Alapine","e4 c5 c3"],
+["B21","Gambit Smith-Morra","e4 c5 d4 cxd4 c3"],
+["C00","Défense française","e4 e6"],
+["C00","Défense française","e4 e6 d4 d5"],
+["C01","Française, variante d'échange","e4 e6 d4 d5 exd5 exd5"],
+["C02","Française, variante d'avance","e4 e6 d4 d5 e5"],
+["C03","Française Tarrasch","e4 e6 d4 d5 Nd2"],
+["C10","Française Rubinstein","e4 e6 d4 d5 Nc3 dxe4"],
+["C11","Française classique","e4 e6 d4 d5 Nc3 Nf6"],
+["C15","Française Winawer","e4 e6 d4 d5 Nc3 Bb4"],
+["B10","Défense Caro-Kann","e4 c6"],
+["B12","Caro-Kann","e4 c6 d4 d5"],
+["B12","Caro-Kann, variante d'avance","e4 c6 d4 d5 e5"],
+["B13","Caro-Kann, variante d'échange","e4 c6 d4 d5 exd5 cxd5"],
+["B15","Caro-Kann","e4 c6 d4 d5 Nc3"],
+["B18","Caro-Kann classique","e4 c6 d4 d5 Nc3 dxe4 Nxe4 Bf5"],
+["B11","Caro-Kann, deux cavaliers","e4 c6 Nc3 d5 Nf3"],
+["B01","Défense scandinave","e4 d5"],
+["B01","Scandinave, variante principale","e4 d5 exd5 Qxd5 Nc3 Qa5"],
+["B01","Scandinave moderne","e4 d5 exd5 Nf6"],
+["B07","Défense Pirc","e4 d6 d4 Nf6 Nc3 g6"],
+["B06","Défense moderne","e4 g6"],
+["B02","Défense Alekhine","e4 Nf6"],
+["B00","Défense Owen","e4 b6"],
+["B00","Défense Nimzowitsch","e4 Nc6"],
+["C20","Partie du pion roi","e4 e5"],
+["C20","Attaque Bongcloud","e4 e5 Ke2"],
+["C20","Ouverture Parham (mat du berger)","e4 e5 Qh5"],
+["C40","Ouverture du cavalier roi","e4 e5 Nf3"],
+["C40","Gambit letton","e4 e5 Nf3 f5"],
+["C40","Défense Damiano","e4 e5 Nf3 f6"],
+["C41","Défense Philidor","e4 e5 Nf3 d6"],
+["C42","Défense russe (Petrov)","e4 e5 Nf3 Nf6"],
+["C44","Partie écossaise","e4 e5 Nf3 Nc6 d4"],
+["C45","Partie écossaise","e4 e5 Nf3 Nc6 d4 exd4 Nxd4"],
+["C44","Gambit écossais","e4 e5 Nf3 Nc6 d4 exd4 Bc4"],
+["C44","Partie Ponziani","e4 e5 Nf3 Nc6 c3"],
+["C46","Partie des trois cavaliers","e4 e5 Nf3 Nc6 Nc3"],
+["C47","Partie des quatre cavaliers","e4 e5 Nf3 Nc6 Nc3 Nf6"],
+["C50","Partie italienne","e4 e5 Nf3 Nc6 Bc4"],
+["C50","Défense hongroise","e4 e5 Nf3 Nc6 Bc4 Be7"],
+["C50","Giuoco Piano","e4 e5 Nf3 Nc6 Bc4 Bc5"],
+["C53","Giuoco Piano, variante principale","e4 e5 Nf3 Nc6 Bc4 Bc5 c3"],
+["C50","Giuoco Pianissimo","e4 e5 Nf3 Nc6 Bc4 Bc5 d3"],
+["C51","Gambit Evans","e4 e5 Nf3 Nc6 Bc4 Bc5 b4"],
+["C55","Défense des deux cavaliers","e4 e5 Nf3 Nc6 Bc4 Nf6"],
+["C57","Deux cavaliers, attaque Ng5","e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5"],
+["C57","Contre-attaque Traxler","e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 Bc5"],
+["C57","Attaque Fegatello (Fried Liver)","e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 d5 exd5 Nxd5 Nxf7"],
+["C60","Partie espagnole","e4 e5 Nf3 Nc6 Bb5"],
+["C65","Espagnole, défense berlinoise","e4 e5 Nf3 Nc6 Bb5 Nf6"],
+["C63","Espagnole, gambit Schliemann","e4 e5 Nf3 Nc6 Bb5 f5"],
+["C68","Espagnole, variante d'échange","e4 e5 Nf3 Nc6 Bb5 a6 Bxc6"],
+["C70","Espagnole, défense Morphy","e4 e5 Nf3 Nc6 Bb5 a6 Ba4"],
+["C78","Espagnole","e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O"],
+["C84","Espagnole fermée","e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7"],
+["C89","Espagnole, attaque Marshall","e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 O-O c3 d5"],
+["C23","Ouverture du fou","e4 e5 Bc4"],
+["C25","Partie viennoise","e4 e5 Nc3"],
+["C30","Gambit du roi","e4 e5 f4"],
+["C33","Gambit du roi accepté","e4 e5 f4 exf4"],
+["C30","Gambit du roi refusé","e4 e5 f4 Bc5"],
+["C31","Contre-gambit Falkbeer","e4 e5 f4 d5"],
+["C21","Gambit du centre","e4 e5 d4 exd4"],
+["C22","Partie du centre","e4 e5 d4 exd4 Qxd4"],
+["C21","Gambit danois","e4 e5 d4 exd4 c3"],
+["A40","Partie du pion dame","d4"],
+["A40","Gambit Englund","d4 e5"],
+["D00","Partie du pion dame","d4 d5"],
+["D00","Système de Londres","d4 d5 Bf4"],
+["D02","Système de Londres","d4 d5 Nf3 Nf6 Bf4"],
+["A45","Système de Londres","d4 Nf6 Bf4"],
+["D04","Système Colle","d4 d5 Nf3 Nf6 e3"],
+["D00","Gambit Blackmar-Diemer","d4 d5 e4"],
+["D06","Gambit dame","d4 d5 c4"],
+["D20","Gambit dame accepté","d4 d5 c4 dxc4"],
+["D30","Gambit dame refusé","d4 d5 c4 e6"],
+["D35","Gambit dame refusé, variante d'échange","d4 d5 c4 e6 Nc3 Nf6 cxd5"],
+["D32","Défense Tarrasch","d4 d5 c4 e6 Nc3 c5"],
+["D43","Défense semi-slave","d4 d5 c4 e6 Nc3 Nf6 Nf3 c6"],
+["D10","Défense slave","d4 d5 c4 c6"],
+["D15","Défense slave","d4 d5 c4 c6 Nf3 Nf6 Nc3"],
+["D08","Contre-gambit Albin","d4 d5 c4 e5"],
+["D07","Défense Tchigorine","d4 d5 c4 Nc6"],
+["A45","Défense indienne","d4 Nf6"],
+["A45","Attaque Trompowsky","d4 Nf6 Bg5"],
+["A46","Attaque Torre","d4 Nf6 Nf3 e6 Bg5"],
+["A50","Défense indienne","d4 Nf6 c4"],
+["E00","Défense indienne","d4 Nf6 c4 e6"],
+["E00","Ouverture catalane","d4 Nf6 c4 e6 g3"],
+["E20","Défense nimzo-indienne","d4 Nf6 c4 e6 Nc3 Bb4"],
+["E12","Défense ouest-indienne","d4 Nf6 c4 e6 Nf3 b6"],
+["E11","Défense bogo-indienne","d4 Nf6 c4 e6 Nf3 Bb4"],
+["E60","Défense est-indienne","d4 Nf6 c4 g6"],
+["E61","Défense est-indienne","d4 Nf6 c4 g6 Nc3 Bg7"],
+["E70","Est-indienne, variante principale","d4 Nf6 c4 g6 Nc3 Bg7 e4 d6"],
+["D80","Défense Grünfeld","d4 Nf6 c4 g6 Nc3 d5"],
+["A56","Défense Benoni","d4 Nf6 c4 c5"],
+["A60","Benoni moderne","d4 Nf6 c4 c5 d5 e6"],
+["A57","Gambit Benko","d4 Nf6 c4 c5 d5 b5"],
+["A51","Gambit Budapest","d4 Nf6 c4 e5"],
+["A80","Défense hollandaise","d4 f5"],
+["A43","Vieille Benoni","d4 c5"],
+["A10","Ouverture anglaise","c4"],
+["A20","Anglaise, sicilienne inversée","c4 e5"],
+["A30","Anglaise symétrique","c4 c5"],
+["A15","Anglaise, anglo-indienne","c4 Nf6"],
+["A04","Ouverture Réti","Nf3"],
+["A09","Ouverture Réti","Nf3 d5 c4"],
+["A07","Attaque est-indienne","Nf3 d5 g3"],
+["A02","Ouverture Bird","f4"],
+["A02","Gambit From","f4 e5"],
+["A01","Ouverture Larsen","b3"],
+["A00","Ouverture Sokolsky (orang-outan)","b4"],
+["A00","Ouverture Grob","g4"],
+["A00","Ouverture hongroise","g3"],
+["A00","Ouverture Van 't Kruijs","e3"],
+["A00","Attaque Saragosse","c3"],
+["A00","Ouverture Dunst","Nc3"],
+["B00","Partie du pion roi","e4"]
+];
+const K3 = fen => fen.split(" ").slice(0,3).join(" ");
+const K4 = fen => fen.split(" ").slice(0,4).join(" ");
+const frMap = new Map();
+for (const [eco, name, moves] of FR_OPENINGS){
+  const g = new Chess();
+  let ok = true;
+  for (const san of moves.split(" ")){ if (!g.move(san)){ ok = false; break; } }
+  if (ok) frMap.set(K3(g.fen()), [eco, name]);
+}
+let fullMap = null; // ouvertures complètes (lichess), intégrées dans l'APK
+try{
+  fetch("openings.json").then(r => r.ok ? r.json() : null).then(j => {
+    if (j && typeof j === "object"){ fullMap = j; renderPanel(); }
+  }).catch(() => {});
+}catch(e){}
+function bookAt(fen){
+  const k = K3(fen);
+  return frMap.has(k) || !!(fullMap && fullMap[k]);
+}
+
+/* ---------- état ---------- */
+const game = new Chess();
+const state = {
+  flipped: !!store.get("flip", false),
+  depth: store.get("depth", 16),
+  selected: null, promo: null,
+  lines: [], depthNow: 0, fen: null,
+  startFen: START, plies: []
+};
+const evalCache = new Map();
+const sacCache = new Map();
+(function restore(){
+  const saved = store.get("game", null);
+  if (!saved || !saved.start || !game.validate_fen(saved.start).valid) return;
+  game.load(saved.start); state.startFen = saved.start;
+  for (const u of (saved.moves || [])){ if (!game.move(uciToObj(u))) break; }
+})();
+
+/* ---------- utilitaires ---------- */
+function uciToObj(u){ const o = {from:u.slice(0,2), to:u.slice(2,4)}; if (u[4]) o.promotion = u[4]; return o; }
+function sqName(i){
+  const r = Math.floor(i/8), c = i%8;
+  const f = state.flipped ? 7-c : c;
+  const rank = state.flipped ? r+1 : 8-r;
+  return FILES[f] + rank;
+}
+function sqXY(sq){
+  const f = FILES.indexOf(sq[0]), rank = +sq[1];
+  const c = state.flipped ? 7-f : f;
+  const r = state.flipped ? rank-1 : 8-rank;
+  return [c*100+50, r*100+50];
+}
+function fmtScore(s){
+  if (!s) return "…";
+  if (s.mate != null){
+    if (s.mate === 0) return "#";
+    return (s.mate > 0 ? "+" : "−") + "M" + Math.abs(s.mate);
+  }
+  const v = s.cp/100;
+  return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
+}
+function toCp(s){
+  if (!s) return 0;
+  if (s.mate != null) return s.mate > 0 ? 10000 - s.mate*10 : s.mate < 0 ? -10000 - s.mate*10 : 0;
+  return s.cp;
+}
+function winW(s){ // % de gain pour les Blancs (formule lichess)
+  const cp = Math.max(-2000, Math.min(2000, toCp(s)));
+  return 50 + 50*(2/(1+Math.exp(-0.00368208*cp)) - 1);
+}
+function whiteShare(s){
+  if (!s) return 0.5;
+  if (s.mate != null) return s.mate > 0 ? 1 : s.mate < 0 ? 0 : 0.5;
+  return 1/(1+Math.pow(10, -s.cp/400));
+}
+function pvToHtml(fen, pv, max){
+  const g = new Chess(fen);
+  const parts = fen.split(" ");
+  let num = parseInt(parts[5], 10) || 1;
+  let white = parts[1] === "w";
+  let out = "";
+  for (let i=0; i<pv.length && i<max; i++){
+    const m = g.move(uciToObj(pv[i]));
+    if (!m) break;
+    if (white) out += '<span class="n">'+num+'.</span>';
+    else if (i === 0) out += '<span class="n">'+num+'…</span>';
+    out += (i === 0 ? "<b>"+m.san+"</b>" : m.san) + " ";
+    if (!white) num++;
+    white = !white;
+  }
+  return out.trim();
+}
+function sanOf(fen, uci){
+  try{ const m = new Chess(fen).move(uciToObj(uci)); return m ? m.san : uci; }catch(e){ return uci; }
+}
+
+/* ---------- historique et classification ---------- */
+function rebuildPlies(){
+  const g = new Chess(state.startFen);
+  state.plies = [];
+  for (const m of game.history({verbose:true})){
+    const fb = g.fen();
+    const nLegal = g.moves().length;
+    const r = g.move({from:m.from, to:m.to, promotion:m.promotion});
+    if (!r) break;
+    state.plies.push({
+      san:r.san, uci:m.from+m.to+(m.promotion||""), from:m.from, to:m.to,
+      piece:m.promotion || m.piece, captured:m.captured, color:m.color,
+      fenBefore:fb, fenAfter:g.fen(), nLegal
+    });
+  }
+}
+function isSacrifice(p){
+  const key = p.fenAfter + p.uci;
+  if (sacCache.has(key)) return sacCache.get(key);
+  let res = false;
+  if (p.piece !== "p" && p.piece !== "k"){
+    const g = new Chess(p.fenAfter);
+    const caps = g.moves({verbose:true}).filter(m => m.to === p.to && m.captured);
+    if (caps.length){
+      caps.sort((a,b) => VAL[a.piece] - VAL[b.piece]);
+      const att = caps[0];
+      g.move({from:att.from, to:att.to, promotion:att.promotion});
+      const recap = g.moves({verbose:true}).some(m => m.to === p.to && m.captured);
+      const net = VAL[p.piece] - (p.captured ? VAL[p.captured] : 0) - (recap ? VAL[att.piece] : 0);
+      res = net >= 2;
+    }
+  }
+  sacCache.set(key, res);
+  return res;
+}
+function classify(p){
+  if (bookAt(p.fenAfter)) return {k:"book", loss:0};
+  if (p.nLegal === 1) return {k:"forced", loss:0};
+  const before = evalCache.get(K4(p.fenBefore));
+  const after = evalCache.get(K4(p.fenAfter));
+  const minD = Engine.weak ? 2 : 8;
+  if (!before || !after || before.depth < minD || after.depth < minD) return null;
+  const sgn = p.color === "w" ? 1 : -1;
+  const pov = s => sgn > 0 ? winW(s) : 100 - winW(s);
+  const wb = pov(before.score), wa = pov(after.score);
+  const loss = Math.max(0, wb - wa);
+  const isBest = before.best === p.uci;
+  let k;
+  if (isBest || loss < 1){
+    if (wa >= 50 && wb < 97 && isSacrifice(p)) k = "brilliant";
+    else if (isBest && before.second && wb < 97 && (pov(before.score) - pov(before.second)) >= 15) k = "great";
+    else k = isBest ? "best" : "excellent";
+  }
+  else if (loss < 2) k = "excellent";
+  else if (loss < 5) k = "good";
+  else if (loss < 10) k = "inaccuracy";
+  else if (loss < 20) k = "mistake";
+  else k = "blunder";
+  return {k, loss, best: before.best};
+}
+function accuracyOf(loss){
+  return Math.max(0, Math.min(100, 103.1668*Math.exp(-0.04354*loss) - 3.1669));
+}
+function currentOpening(){
+  let fr = frMap.get(K3(state.startFen)) || null, full = null;
+  if (fullMap && fullMap[K3(state.startFen)]) full = fullMap[K3(state.startFen)];
+  for (const p of state.plies){
+    const k = K3(p.fenAfter);
+    if (frMap.has(k)) fr = frMap.get(k);
+    if (fullMap && fullMap[k]) full = fullMap[k];
+  }
+  return {fr, full};
+}
+
+/* ---------- rendu ---------- */
+const boardEl = $("board");
+function renderBoard(){
+  const hist = game.history({verbose:true});
+  const last = hist.length ? hist[hist.length-1] : null;
+  let chk = null;
+  if (game.in_check()){
+    const b = game.board();
+    for (let r=0;r<8;r++) for (let c=0;c<8;c++){
+      const p = b[r][c];
+      if (p && p.type === "k" && p.color === game.turn()) chk = FILES[c]+(8-r);
+    }
+  }
+  const tgts = {};
+  if (state.selected){
+    for (const m of game.moves({square:state.selected, verbose:true})) tgts[m.to] = !!m.captured;
+  }
+  let html = "";
+  for (let i=0;i<64;i++){
+    const sq = sqName(i);
+    const dark = (FILES.indexOf(sq[0]) + (+sq[1])) % 2 === 0;
+    const cls = ["sq"];
+    if (dark) cls.push("d");
+    if (last && (sq === last.from || sq === last.to)) cls.push("last");
+    if (sq === state.selected) cls.push("sel");
+    if (sq === chk) cls.push("chk");
+    if (sq in tgts){ cls.push("tgt"); if (tgts[sq]) cls.push("cap"); }
+    const p = game.get(sq);
+    let inner = p ? '<span class="pc '+p.color+'">'+GLYPH[p.type]+VS+'</span>' : "";
+    const r = Math.floor(i/8), c = i%8;
+    if (r === 7) inner += '<span class="co f">'+sq[0]+'</span>';
+    if (c === 0) inner += '<span class="co r">'+sq[1]+'</span>';
+    const label = sq + (p ? " " + (p.color === "w" ? "blanc" : "noir") + " " + p.type : "");
+    html += '<button type="button" class="'+cls.join(" ")+'" data-sq="'+sq+'" aria-label="'+label+'">'+inner+'</button>';
+  }
+  boardEl.innerHTML = html;
+  lastBadgeKey = "";
+  renderArrow();
+}
+function renderArrow(){
+  const svg = $("arrows");
+  const best = state.lines[0] && state.lines[0].pv[0];
+  if (!best || game.game_over()){ svg.innerHTML = ""; return; }
+  const [x1,y1] = sqXY(best.slice(0,2)), [x2,y2] = sqXY(best.slice(2,4));
+  const dx = x2-x1, dy = y2-y1, len = Math.hypot(dx,dy) || 1;
+  const ux = dx/len, uy = dy/len, px = -uy, py = ux;
+  const head = 38, hw = 28, sw = 9;
+  const ex = x2 - ux*12, ey = y2 - uy*12;
+  const bx = ex - ux*head, by = ey - uy*head;
+  const sx = x1 + ux*18, sy = y1 + uy*18;
+  const pts = [
+    [sx+px*sw, sy+py*sw], [bx+px*sw, by+py*sw], [bx+px*hw, by+py*hw], [ex, ey],
+    [bx-px*hw, by-py*hw], [bx-px*sw, by-py*sw], [sx-px*sw, sy-py*sw]
+  ].map(p => p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+  svg.innerHTML = '<polygon points="'+pts+'"/>';
+}
+let lastBadgeKey = "";
+function renderBadge(p, c){
+  const el = $("mbadge");
+  if (!p || !c){ el.hidden = true; lastBadgeKey = ""; return; }
+  const key = p.fenAfter + c.k + state.flipped;
+  if (key === lastBadgeKey) return;
+  lastBadgeKey = key;
+  const [x, y] = sqXY(p.to);
+  el.style.left = ((x-50)/8) + "%";
+  el.style.top = ((y-50)/8) + "%";
+  const d = CLS[c.k];
+  el.innerHTML = '<span style="background:'+d.c+';color:'+(d.ink||"#fff")+'">'+d.g+'</span>';
+  el.hidden = false;
+}
+function renderPanel(){
+  const over = game.game_over();
+  const trait = game.turn() === "w" ? "Blancs" : "Noirs";
+  let evalTxt, share;
+  if (game.in_checkmate()){
+    evalTxt = game.turn() === "w" ? "0–1" : "1–0";
+    share = game.turn() === "w" ? 0 : 1;
+    $("status").textContent = "Échec et mat. Les " + (game.turn() === "w" ? "Noirs" : "Blancs") + " gagnent.";
+  } else if (over){
+    evalTxt = "½–½"; share = 0.5;
+    let why = "Partie nulle";
+    if (game.in_stalemate()) why = "Pat : partie nulle";
+    else if (game.insufficient_material()) why = "Matériel insuffisant : partie nulle";
+    else if (game.in_threefold_repetition()) why = "Triple répétition : partie nulle";
+    $("status").textContent = why + ".";
+  } else {
+    const s = state.lines[0] && state.lines[0].score;
+    evalTxt = fmtScore(s); share = whiteShare(s);
+    $("status").textContent = "Trait aux " + trait + (game.in_check() ? " · échec !" : "");
+  }
+  $("evalNum").textContent = evalTxt;
+  $("evalW").style.width = (share*100).toFixed(1) + "%";
+  $("evalBar").classList.toggle("flip", state.flipped);
+  $("depthNow").textContent = (!over && state.depthNow) ? "prof. " + state.depthNow + "/" + state.depth : "";
+
+  // variantes
+  const ul = $("lines");
+  if (over){ ul.innerHTML = ""; }
+  else if (!state.lines.length){
+    ul.innerHTML = '<li class="skel"></li><li class="skel"></li><li class="skel"></li>';
+  } else {
+    ul.innerHTML = state.lines.filter(Boolean).map((l, k) => {
+      const pos = whiteShare(l.score) >= 0.5 ? "pw" : "pb";
+      return '<li><button type="button" class="line" data-k="'+k+'"><span class="sc '+pos+'">'+fmtScore(l.score)+'</span><span class="mv">'+pvToHtml(state.fen, l.pv, 10)+'</span></button></li>';
+    }).join("");
+  }
+
+  // ouverture
+  const op = currentOpening();
+  const bar = $("openingBar");
+  if (op.fr || op.full){
+    const eco = (op.fr || op.full)[0];
+    const name = op.fr ? op.fr[1] : op.full[1];
+    bar.innerHTML = '<span class="eco">'+eco+'</span><span class="op-name"></span>';
+    bar.querySelector(".op-name").textContent = name;
+    $("ecoNow").textContent = eco;
+    $("opDetail").textContent = op.full && op.fr ? op.full[1] : op.full ? op.full[1] : name;
+  } else {
+    bar.innerHTML = '<span class="op-name none"></span>';
+    bar.firstChild.textContent = state.plies.length ? "Ouverture non répertoriée" : "Position de départ";
+    $("ecoNow").textContent = "";
+    $("opDetail").textContent = state.plies.length ? "Cette suite de coups n'est pas dans le répertoire d'ouvertures." : "Joue les premiers coups pour reconnaître l'ouverture.";
+  }
+
+  // coups joués + classification
+  const classes = state.plies.map(classify);
+  const acc = {w:[], b:[]};
+  state.plies.forEach((p, i) => { const c = classes[i]; if (c) acc[p.color].push(accuracyOf(c.loss)); });
+  const avg = a => a.length ? Math.round(a.reduce((x,y)=>x+y,0)/a.length) + "%" : "–";
+  $("accW").textContent = avg(acc.w); $("accB").textContent = avg(acc.b);
+
+  const mv = $("moves");
+  if (!state.plies.length){
+    mv.innerHTML = '<div class="empty">Aucun coup joué.</div>';
+  } else {
+    const startNum = parseInt(state.startFen.split(" ")[5], 10) || 1;
+    const blackFirst = state.startFen.split(" ")[1] === "b";
+    let html = "", num = startNum;
+    let i = 0;
+    const cell = (j) => {
+      const p = state.plies[j], c = classes[j];
+      return '<span class="m'+(j === state.plies.length-1 ? " cur" : "")+'">'+badge(c && c.k)+'<span>'+p.san+'</span></span>';
+    };
+    if (blackFirst){ html += '<span class="n">'+num+'.</span><span class="m">…</span>' + cell(0); i = 1; num++; }
+    for (; i < state.plies.length; i += 2){
+      html += '<span class="n">'+num+'.</span>' + cell(i) + (i+1 < state.plies.length ? cell(i+1) : "<span></span>");
+      num++;
+    }
+    if (mv.innerHTML !== html){ mv.innerHTML = html; mv.scrollTop = mv.scrollHeight; }
+  }
+
+  // verdict du dernier coup
+  const lp = state.plies[state.plies.length-1];
+  const lc = classes[classes.length-1];
+  const vd = $("verdict");
+  if (!lp){
+    vd.innerHTML = '<span class="txt">Joue un coup pour voir sa note.</span>';
+  } else if (!lc){
+    vd.innerHTML = badge(null) + '<span class="txt"><b>'+lp.san+'</b> : analyse en cours…</span>';
+  } else {
+    let sub = "";
+    if (["inaccuracy","mistake","blunder","good","excellent"].includes(lc.k) && lc.best){
+      sub = '<div class="sub">Le meilleur était <b>'+sanOf(lp.fenBefore, lc.best)+'</b></div>';
+    }
+    vd.innerHTML = badge(lc.k) + '<span class="txt"><b>'+lp.san+'</b> est '+ARTICLE[lc.k]+sub+'</span>';
+  }
+  renderBadge(lp, lc);
+
+  $("bBest").disabled = over || !state.lines.length;
+  $("bUndo").disabled = game.history().length === 0;
+  document.querySelectorAll("#depthSeg button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.d === state.depth)));
+  if (document.activeElement !== $("fenInput")) $("fenInput").value = game.fen();
+}
+let panelQueued = false;
+function queuePanel(){
+  if (panelQueued) return;
+  panelQueued = true;
+  requestAnimationFrame(() => { panelQueued = false; renderPanel(); renderArrow(); });
+}
+
+/* ---------- moteur ---------- */
+const LOCAL = n => new URL(n, location.href).href;
+const CHESS_URL = LOCAL("chess.min.js");
+const CANDIDATES = [
+  {url:LOCAL("stockfish.js"), name:"Stockfish 10"},
+  {url:"https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js", name:"Stockfish 10"},
+  {url:"https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js", name:"Stockfish 10"},
+  {url:"https://unpkg.com/stockfish.js@10.0.2/stockfish.js", name:"Stockfish 10"}
+];
+const FALLBACK_SRC = `
+try{importScripts(${JSON.stringify(CHESS_URL)});}catch(e){importScripts("https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js");}
+var V={p:100,n:320,b:330,r:500,q:900,k:0};
+function ev(g){var b=g.board(),s=0;for(var r=0;r<8;r++)for(var c=0;c<8;c++){var p=b[r][c];if(!p)continue;var v=V[p.type];
+var cen=3.5-Math.max(Math.abs(3.5-r),Math.abs(3.5-c));
+if(p.type==="n"||p.type==="b")v+=cen*9;else if(p.type==="q")v+=cen*3;else if(p.type==="p")v+=(p.color==="w"?(6-r):(r-1))*7+((c>=2&&c<=5)?cen*5:0);
+s+=p.color==="w"?v:-v;}return s;}
+function ord(ms){return ms.sort(function(a,b){return(b.captured?V[b.captured]*10-V[b.piece]:0)-(a.captured?V[a.captured]*10-V[a.piece]:0);});}
+function neg(g,d,a,be){if(g.in_checkmate())return -100000-d;if(g.in_draw())return 0;
+if(d===0)return ev(g)*(g.turn()==="w"?1:-1);var ms=ord(g.moves({verbose:true}));
+for(var i=0;i<ms.length;i++){g.move(ms[i]);var s=-neg(g,d-1,-be,-a);g.undo();if(s>=be)return be;if(s>a)a=s;}return a;}
+var fen="";
+onmessage=function(e){var c=String(e.data);
+if(c==="uci"){postMessage("id name Moteur simplifié");postMessage("uciok");return;}
+if(c==="isready"){postMessage("readyok");return;}
+if(c.indexOf("position fen ")===0){fen=c.slice(13);return;}
+if(c.indexOf("go")===0){var g=new Chess(fen),ms=ord(g.moves({verbose:true})),best=null,bs=0;
+for(var d=1;d<=3;d++){var a=-1e9;best=null;for(var i=0;i<ms.length;i++){g.move(ms[i]);var s=-neg(g,d-1,-1e9,-a);g.undo();if(s>a||!best){a=s;best=ms[i];}}
+bs=a;var sc=Math.abs(bs)>=90000?("mate "+(bs>0?1:-1)):("cp "+Math.round(bs));
+if(best)postMessage("info depth "+d+" multipv 1 score "+sc+" pv "+best.from+best.to+(best.promotion||""));}
+postMessage("bestmove "+(best?best.from+best.to+(best.promotion||""):"(none)"));}};
+`;
+function tryLoad(src, isUrl, timeout){
+  return new Promise(resolve => {
+    let w, done = false, ping;
+    const finish = v => {
+      if (done) return; done = true;
+      clearTimeout(t); clearInterval(ping);
+      if (!v){ try{ w && w.terminate(); }catch(e){} }
+      resolve(v);
+    };
+    const t = setTimeout(() => finish(null), timeout);
+    try{
+      const code = isUrl ? "importScripts(" + JSON.stringify(src) + ");" : src;
+      w = new Worker(URL.createObjectURL(new Blob([code], {type:"application/javascript"})));
+    }catch(e){ return finish(null); }
+    w.onmessage = e => { if (String(e.data).indexOf("uciok") >= 0) finish(w); };
+    w.onerror = ev => { ev.preventDefault && ev.preventDefault(); finish(null); };
+    w.postMessage("uci");
+    ping = setInterval(() => { try{ w.postMessage("uci"); }catch(e){} }, 2500);
+  });
+}
+const Engine = {
+  w:null, ready:false, searching:false, pending:null, current:null, weak:false,
+  async init(){
+    for (const c of CANDIDATES){
+      const w = await tryLoad(c.url, true, 20000);
+      if (w){ this.attach(w, c.name, "ok"); return; }
+    }
+    const w = await tryLoad(FALLBACK_SRC, false, 15000);
+    if (w){ this.weak = true; this.attach(w, "Moteur simplifié", "warn"); return; }
+    setChip("Aucun moteur disponible", "err");
+    $("status").textContent = "Le moteur n'a pas pu se charger. Vérifie ta connexion puis relance.";
+  },
+  attach(w, name, kind){
+    this.w = w;
+    w.onmessage = e => String(e.data).split("\n").forEach(l => this.onLine(l.trim()));
+    w.postMessage("setoption name MultiPV value " + MULTIPV);
+    w.postMessage("isready");
+    this.ready = true;
+    setChip(name, kind);
+    if (this.pending && !this.searching) this.start();
+  },
+  analyze(fen, depth){
+    this.pending = {fen, depth};
+    if (!this.ready) return;
+    if (this.searching) this.w.postMessage("stop");
+    else this.start();
+  },
+  cancel(){
+    this.pending = null;
+    if (this.searching){ this.current = null; this.w.postMessage("stop"); }
+  },
+  start(){
+    const p = this.pending; this.pending = null;
+    this.current = p; this.searching = true;
+    this.w.postMessage("position fen " + p.fen);
+    this.w.postMessage("go depth " + p.depth);
+  },
+  onLine(line){
+    if (!line) return;
+    if (line.indexOf("bestmove") === 0){
+      this.searching = false;
+      if (this.pending) this.start();
+      return;
+    }
+    if (line.indexOf("info") === 0 && this.current && !this.pending && line.indexOf(" pv ") > 0){
+      parseInfo(line, this.current.fen);
+    }
+  }
+};
+function setChip(text, kind){
+  $("engineName").textContent = text;
+  $("engineChip").className = "chip " + (kind || "");
+}
+function parseInfo(line, fen){
+  if (fen !== state.fen) return;
+  const t = line.split(/\s+/);
+  let depth = 0, k = 1, score = null, pv = null;
+  for (let i=0; i<t.length; i++){
+    if (t[i] === "depth") depth = +t[i+1];
+    else if (t[i] === "multipv") k = +t[i+1];
+    else if (t[i] === "score"){
+      if (t[i+1] === "cp") score = {cp:+t[i+2]};
+      else if (t[i+1] === "mate") score = {mate:+t[i+2]};
+    }
+    else if (t[i] === "pv"){ pv = t.slice(i+1); break; }
+  }
+  if (!pv || !pv.length || !score || k < 1 || k > MULTIPV) return;
+  if (fen.split(" ")[1] === "b"){
+    if (score.cp != null) score.cp = -score.cp;
+    if (score.mate != null) score.mate = -score.mate;
+  }
+  state.lines[k-1] = {depth, score, pv};
+  state.depthNow = depth;
+  const l0 = state.lines[0], l1 = state.lines[1];
+  if (l0){
+    const key = K4(fen), prev = evalCache.get(key);
+    if (!prev || l0.depth >= prev.depth){
+      evalCache.set(key, {score:l0.score, best:l0.pv[0], second:l1 ? l1.score : null, depth:l0.depth});
+    }
+  }
+  queuePanel();
+}
+
+/* ---------- actions ---------- */
+function positionChanged(){
+  state.selected = null;
+  state.lines = [];
+  state.depthNow = 0;
+  state.fen = game.fen();
+  rebuildPlies();
+  store.set("game", {start:state.startFen, moves:state.plies.map(p => p.uci)});
+  if (game.in_checkmate()){
+    evalCache.set(K4(state.fen), {score:{cp: game.turn() === "w" ? -10000 : 10000}, best:null, second:null, depth:99});
+  } else if (game.game_over()){
+    evalCache.set(K4(state.fen), {score:{cp:0}, best:null, second:null, depth:99});
+  }
+  renderBoard(); renderPanel();
+  if (game.game_over()) Engine.cancel();
+  else Engine.analyze(state.fen, state.depth);
+}
+function play(m){
+  const r = game.move(m);
+  if (r) positionChanged();
+  return !!r;
+}
+function onSquare(sq){
+  if (state.promo) return;
+  if (state.selected){
+    const ms = game.moves({square:state.selected, verbose:true}).filter(m => m.to === sq);
+    if (ms.length){
+      if (ms.some(m => m.promotion)) return askPromo(state.selected, sq);
+      play({from:state.selected, to:sq}); return;
+    }
+  }
+  const p = game.get(sq);
+  state.selected = (p && p.color === game.turn() && sq !== state.selected) ? sq : null;
+  renderBoard(); renderPanel();
+}
+function askPromo(from, to){
+  state.promo = {from, to};
+  const color = game.turn();
+  $("promoBox").innerHTML = ["q","r","b","n"].map(t =>
+    '<button type="button" data-p="'+t+'" aria-label="Promouvoir"><span class="pc '+color+'">'+GLYPH[t]+VS+'</span></button>').join("");
+  $("promo").hidden = false;
+  $("promoBox").querySelector("button").focus();
+}
+$("promoBox").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b || !state.promo) return;
+  const {from, to} = state.promo; state.promo = null; $("promo").hidden = true;
+  play({from, to, promotion:b.dataset.p});
+});
+$("promo").addEventListener("click", e => {
+  if (e.target.id === "promo"){ state.promo = null; $("promo").hidden = true; state.selected = null; renderBoard(); renderPanel(); }
+});
+boardEl.addEventListener("click", e => {
+  const b = e.target.closest(".sq"); if (b) onSquare(b.dataset.sq);
+});
+$("lines").addEventListener("click", e => {
+  const b = e.target.closest(".line"); if (!b) return;
+  const l = state.lines[+b.dataset.k];
+  if (l && l.pv[0]) play(uciToObj(l.pv[0]));
+});
+$("bBest").addEventListener("click", () => {
+  const l = state.lines[0];
+  if (l && l.pv[0] && !game.game_over()) play(uciToObj(l.pv[0]));
+});
+$("bUndo").addEventListener("click", () => { if (game.undo()) positionChanged(); });
+$("bNew").addEventListener("click", () => { game.load(START); state.startFen = START; positionChanged(); });
+$("bFlip").addEventListener("click", () => {
+  state.flipped = !state.flipped; store.set("flip", state.flipped);
+  renderBoard(); renderPanel();
+});
+$("depthSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.depth = +b.dataset.d; store.set("depth", state.depth);
+  state.lines = []; state.depthNow = 0;
+  renderPanel(); renderArrow();
+  if (!game.game_over()) Engine.analyze(state.fen, state.depth);
+});
+$("fenForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const fen = $("fenInput").value.trim();
+  const v = game.validate_fen(fen);
+  const msg = $("fenMsg");
+  if (!v.valid){ msg.textContent = "FEN invalide : " + v.error; msg.className = "msg err"; return; }
+  game.load(fen); state.startFen = game.fen();
+  msg.textContent = "Position chargée."; msg.className = "msg";
+  $("fenInput").blur();
+  positionChanged();
+});
+$("bCopy").addEventListener("click", () => {
+  const input = $("fenInput"), msg = $("fenMsg");
+  input.value = game.fen();
+  const fallback = () => { input.focus(); input.select(); msg.textContent = "FEN sélectionnée : copie-la avec ton clavier."; msg.className = "msg"; };
+  try{
+    navigator.clipboard.writeText(game.fen())
+      .then(() => { msg.textContent = "FEN copiée."; msg.className = "msg"; })
+      .catch(fallback);
+  }catch(e){ fallback(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowLeft"){ if (game.undo()) positionChanged(); }
+  else if (e.key === "ArrowRight" || e.key === " "){ e.preventDefault(); $("bBest").click(); }
+  else if (e.key === "Escape" && state.promo){ $("promo").click(); }
+});
+
+/* ---------- démarrage ---------- */
+positionChanged();
+Engine.init();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- pion stylisé -->
+    <path android:fillColor="#F0AA45"
+        android:pathData="M44,41 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z" />
+    <path android:fillColor="#F0AA45"
+        android:pathData="M48,52 L60,52 L63.5,69 L44.5,69 Z" />
+    <path android:fillColor="#F0AA45"
+        android:pathData="M40,71 L68,71 Q70,71 70,73 L70,77 L38,77 L38,73 Q38,71 40,71 Z" />
+</vector>
