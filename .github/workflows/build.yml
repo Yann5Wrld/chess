@@ -2,6 +2,7 @@ name: Build APK
 
 on:
   push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,8 +20,6 @@ jobs:
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
 
       - name: Intégrer Stockfish et chess.js dans l'appli (fonctionne hors ligne)
         run: |
@@ -53,7 +52,9 @@ jobs:
           fi
 
       - name: Compiler l'APK
-        run: gradle assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
       - name: Renommer l'APK
         run: cp app/build/outputs/apk/debug/app-debug.apk ExplorateurStockfish.apk
@@ -67,5 +68,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.${{ github.run_number }}
-          name: Explorateur Stockfish v1.${{ github.run_number }}
+          name: "Explorateur Stockfish v1.${{ github.run_number }}"
+          make_latest: true
           files: ExplorateurStockfish.apk
